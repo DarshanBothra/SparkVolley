@@ -1,4 +1,5 @@
-import { COLORS, rgba } from "./glow.ts";
+import { rgba } from "./glow.ts";
+import { px } from "./font.ts";
 
 type Particle = {
   x: number;
@@ -103,7 +104,7 @@ export class Particles {
     ctx.save();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = "700 22px 'Segoe UI', sans-serif";
+    ctx.font = px(10);
     for (const f of this.floaters) {
       ctx.globalAlpha = Math.max(0, f.life);
       ctx.fillStyle = f.color;
@@ -114,7 +115,7 @@ export class Particles {
     ctx.restore();
   }
 
-  wallSpark(x: number, y: number, nx: number, ny: number): void {
+  wallSpark(x: number, y: number, nx: number, ny: number, color: string): void {
     for (let i = 0; i < 8; i++) {
       const spread = (Math.random() - 0.5) * 1.2;
       this.bits.push({
@@ -125,7 +126,7 @@ export class Particles {
         life: 1,
         maxLife: 0.2 + Math.random() * 0.2,
         r: 1.2 + Math.random() * 1.6,
-        color: COLORS.cyan,
+        color,
         drag: 3,
       });
     }

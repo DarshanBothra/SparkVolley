@@ -1,4 +1,4 @@
-import { comboColor, rgba } from "../fx/glow.ts";
+import { COLORS, HALO_PALETTE, rgba } from "../fx/glow.ts";
 
 export class Halo {
   x = 0;
@@ -12,6 +12,7 @@ export class Halo {
   phase = 0;
   cooldown = 0;
   mover = false;
+  accent: string = COLORS.cyan;
 
   spawn(
     worldW: number,
@@ -30,6 +31,7 @@ export class Halo {
     this.vy = Math.sin(ang) * drift * 0.55;
     this.phase = Math.random() * Math.PI * 2;
     this.cooldown = 0.18;
+    this.accent = HALO_PALETTE[Math.floor(Math.random() * HALO_PALETTE.length)]!;
 
     const minY = 90;
     const maxY = worldH * 0.62;
@@ -49,13 +51,15 @@ export class Halo {
     }
   }
 
-  update(dt: number, worldW: number, worldH: number): void {
+  update(dt: number, worldW: number, worldH: number, frozen: boolean): void {
     this.cooldown = Math.max(0, this.cooldown - dt);
-    this.rotation += this.rotSpeed * dt;
+    this.rotation += this.rotSpeed * dt * (frozen ? 0.25 : 1);
     this.phase += dt * 2.4;
 
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
+    if (!frozen) {
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+    }
 
     const minX = this.outerR + 12;
     const maxX = worldW - this.outerR - 12;
@@ -82,9 +86,10 @@ export class Halo {
     return Math.hypot(px - this.x, py - this.y) < this.innerR;
   }
 
-  draw(ctx: CanvasRenderingContext2D, combo: number): void {
-    const color = comboColor(combo);
-    const pulse = 0.85 + Math.sin(this.phase) * 0.15;
+  draw(ctx: CanvasRenderingContext2D): void {
+    const breathe = 0.72 + Math.sin(this.phase) * 0.28;
+    const color = this.accent;
+    const pulse = 0.85 + Math.sin(this.phase * 1.1) * 0.15;
     const mid = (this.outerR + this.innerR) / 2;
     const thickness = (this.outerR - this.innerR) * pulse;
 
@@ -94,20 +99,20 @@ export class Halo {
 
     ctx.beginPath();
     ctx.arc(0, 0, this.innerR, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(7, 7, 15, 0.72)";
+    ctx.fillStyle = "rgba(12, 12, 26, 0.72)";
     ctx.fill();
 
     ctx.globalCompositeOperation = "lighter";
-    ctx.strokeStyle = rgba(color, 0.95);
+    ctx.strokeStyle = rgba(color, 0.55 + breathe * 0.45);
     ctx.lineWidth = thickness;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 16;
+    ctx.shadowBlur = 14 + breathe * 10;
     ctx.beginPath();
     ctx.arc(0, 0, mid, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = rgba("#ffffff", 0.35);
+    ctx.strokeStyle = rgba("#ffffff", 0.28 + breathe * 0.12);
     ctx.lineWidth = 1.5;
     ctx.setLineDash([10, 14]);
     ctx.beginPath();
@@ -116,7 +121,7 @@ export class Halo {
     ctx.setLineDash([]);
 
     const ticks = 6;
-    ctx.strokeStyle = rgba(color, 0.7);
+    ctx.strokeStyle = rgba(color, 0.55 + breathe * 0.35);
     ctx.lineWidth = 2;
     for (let i = 0; i < ticks; i++) {
       const a = (i / ticks) * Math.PI * 2;

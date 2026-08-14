@@ -1,12 +1,17 @@
 export const COLORS = {
-  bg: "#07070f",
+  bg: "#05050c",
+  court: "#0c0c1a",
   cyan: "#00f0ff",
   magenta: "#ff2bd6",
+  orange: "#ff6a00",
   gold: "#f8ff4a",
 } as const;
 
+export const HALO_PALETTE = [COLORS.cyan, COLORS.magenta, COLORS.orange] as const;
+
 export function comboColor(combo: number): string {
-  if (combo >= 10) return COLORS.gold;
+  if (combo >= 15) return COLORS.gold;
+  if (combo >= 10) return COLORS.orange;
   if (combo >= 5) return COLORS.magenta;
   return COLORS.cyan;
 }
@@ -76,21 +81,77 @@ export class Shake {
   }
 }
 
+export function drawCourt(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  pulse: number,
+  railFlash: { left: number; right: number; top: number },
+  aegis: boolean,
+): void {
+  ctx.fillStyle = COLORS.court;
+  ctx.fillRect(0, 0, w, h);
+
+  const rail = 7;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+
+  const leftGlow = 16 + pulse * 14 + railFlash.left * 22;
+  ctx.shadowColor = COLORS.cyan;
+  ctx.shadowBlur = leftGlow;
+  ctx.fillStyle = COLORS.cyan;
+  ctx.fillRect(0, 0, rail, h);
+  ctx.fillStyle = rgba("#ffffff", 0.35 + railFlash.left * 0.5);
+  ctx.fillRect(2, 0, 2, h);
+
+  const rightGlow = 16 + pulse * 14 + railFlash.right * 22;
+  ctx.shadowColor = COLORS.cyan;
+  ctx.shadowBlur = rightGlow;
+  ctx.fillStyle = COLORS.cyan;
+  ctx.fillRect(w - rail, 0, rail, h);
+  ctx.fillStyle = rgba("#ffffff", 0.35 + railFlash.right * 0.5);
+  ctx.fillRect(w - 4, 0, 2, h);
+
+  const topGlow = 16 + pulse * 14 + railFlash.top * 22;
+  const topGrad = ctx.createLinearGradient(0, 0, w, 0);
+  topGrad.addColorStop(0, COLORS.magenta);
+  topGrad.addColorStop(0.5, COLORS.orange);
+  topGrad.addColorStop(1, COLORS.magenta);
+  ctx.shadowColor = COLORS.orange;
+  ctx.shadowBlur = topGlow;
+  ctx.fillStyle = topGrad;
+  ctx.fillRect(0, 0, w, rail);
+  ctx.fillStyle = rgba("#ffffff", 0.28 + railFlash.top * 0.45);
+  ctx.fillRect(0, 2, w, 2);
+
+  const floorH = aegis ? 10 : 5;
+  ctx.shadowColor = COLORS.orange;
+  ctx.shadowBlur = aegis ? 28 : 10;
+  ctx.fillStyle = aegis ? COLORS.orange : rgba(COLORS.orange, 0.42);
+  ctx.fillRect(rail, h - floorH, w - rail * 2, floorH);
+  if (aegis) {
+    ctx.fillStyle = rgba("#ffffff", 0.45);
+    ctx.fillRect(rail, h - floorH + 2, w - rail * 2, 2);
+  }
+
+  ctx.restore();
+}
+
 export function drawGrid(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
   pulse: number,
 ): void {
-  const alpha = 0.05 + pulse * 0.16;
+  const alpha = 0.045 + pulse * 0.14;
   ctx.save();
-  ctx.strokeStyle = rgba(COLORS.cyan, alpha);
   ctx.lineWidth = 1;
 
   const vpX = w * 0.5;
   const cols = 18;
   for (let i = 0; i <= cols; i++) {
     const x = (i / cols) * w;
+    ctx.strokeStyle = rgba(i % 2 === 0 ? COLORS.cyan : COLORS.orange, alpha);
     ctx.beginPath();
     ctx.moveTo(x, h);
     ctx.lineTo(vpX + (x - vpX) * 0.12, 0);
@@ -102,6 +163,7 @@ export function drawGrid(
     const t = i / rows;
     const y = (t * t * 0.55 + t * 0.45) * h;
     const spread = 0.12 + (y / h) * 0.88;
+    ctx.strokeStyle = rgba(i % 2 === 0 ? COLORS.orange : COLORS.cyan, alpha * 0.9);
     ctx.beginPath();
     ctx.moveTo(vpX - (w * 0.5) * spread, y);
     ctx.lineTo(vpX + (w * 0.5) * spread, y);
@@ -161,4 +223,80 @@ export function roundRectPath(
   ctx.arcTo(x, y + h, x, y, radius);
   ctx.arcTo(x, y, x + w, y, radius);
   ctx.closePath();
+}
+
+export class Afterimage {
+  private readonly items: { x: number; y: number; r: number; life: number }[] = [];
+
+  spawn(x: number, y: number, r: number): void {
+    this.items.push({ x, y, r, life: 1 });
+  }
+
+  update(dt: number): void {
+    for (const item of this.items) item.life -= dt * 2.8;
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      if (this.items[i]!.life <= 0) this.items.splice(i, 1);
+    }
+  }
+
+  clear(): void {
+    this.items.length = 0;
+  }
+
+  draw(ctx: CanvasRenderingContext2D): void {
+    for (const item of this.items) {
+      const a = Math.max(0, item.life);
+      drawGlowCircle(ctx, item.x - 7, item.y, item.r * 0.9, COLORS.cyan, a * 0.55);
+      drawGlowCircle(ctx, item.x + 7, item.y, item.r * 0.9, COLORS.orange, a * 0.55);
+    }
+  }
+}
+
+export class Motes {
+  private readonly bits: {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    r: number;
+    color: string;
+    a: number;
+  }[] = [];
+
+  constructor(w: number, h: number) {
+    const palette = [COLORS.cyan, COLORS.magenta, COLORS.orange];
+    for (let i = 0; i < 42; i++) {
+      this.bits.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 18,
+        vy: -8 - Math.random() * 22,
+        r: 0.7 + Math.random() * 1.6,
+        color: palette[i % palette.length]!,
+        a: 0.12 + Math.random() * 0.22,
+      });
+    }
+  }
+
+  update(dt: number, w: number, h: number): void {
+    for (const p of this.bits) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      if (p.y < -8) p.y = h + 8;
+      if (p.x < -8) p.x = w + 8;
+      if (p.x > w + 8) p.x = -8;
+    }
+  }
+
+  draw(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const p of this.bits) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = rgba(p.color, p.a);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 }

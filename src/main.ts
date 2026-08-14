@@ -38,7 +38,10 @@ function layout(): void {
 }
 
 layout();
-window.addEventListener("resize", layout);
+window.addEventListener("resize", () => {
+  layout();
+  game.syncDevice();
+});
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && game.state === "playing") game.state = "paused";

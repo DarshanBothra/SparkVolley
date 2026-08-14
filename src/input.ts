@@ -6,10 +6,15 @@ export class Input {
   private pause = false;
   private mute = false;
   private copy = false;
+  private skip = false;
+  private tap = false;
 
   constructor() {
     window.addEventListener("keydown", (e) => this.onKey(e, true));
     window.addEventListener("keyup", (e) => this.onKey(e, false));
+    window.addEventListener("pointerdown", () => {
+      this.tap = true;
+    });
     window.addEventListener("blur", () => {
       this.left = false;
       this.right = false;
@@ -27,7 +32,8 @@ export class Input {
       code === "KeyM" ||
       code === "KeyA" ||
       code === "KeyD" ||
-      code === "KeyC"
+      code === "KeyC" ||
+      code === "KeyN"
     ) {
       e.preventDefault();
     }
@@ -40,6 +46,7 @@ export class Input {
     if (code === "KeyP" || code === "Escape") this.pause = true;
     if (code === "KeyM") this.mute = true;
     if (code === "KeyC") this.copy = true;
+    if (code === "KeyN") this.skip = true;
   }
 
   consumeSpace(): boolean {
@@ -63,6 +70,18 @@ export class Input {
   consumeCopy(): boolean {
     const v = this.copy;
     this.copy = false;
+    return v;
+  }
+
+  consumeSkip(): boolean {
+    const v = this.skip;
+    this.skip = false;
+    return v;
+  }
+
+  consumeTap(): boolean {
+    const v = this.tap;
+    this.tap = false;
     return v;
   }
 }

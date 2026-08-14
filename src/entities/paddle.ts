@@ -84,7 +84,7 @@ export class Paddle {
     ctx.stroke();
 
     const cap = 14;
-    ctx.fillStyle = rgba("#ffffff", 0.55 + this.impactFlash * 0.4);
+    ctx.fillStyle = rgba(COLORS.orange, 0.75 + this.impactFlash * 0.25);
     roundRectPath(ctx, x + 3, y + 4, cap, this.height - 8, 4);
     ctx.fill();
     roundRectPath(ctx, x + this.width - cap - 3, y + 4, cap, this.height - 8, 4);

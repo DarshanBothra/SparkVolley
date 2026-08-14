@@ -47,8 +47,11 @@ export class Spark {
   update(
     dt: number,
     worldW: number,
+    worldH: number,
     speedMul: number,
-  ): "left" | "right" | "top" | null {
+    gravityMul: number,
+    aegis: boolean,
+  ): "left" | "right" | "top" | "floor" | null {
     this.prevX = this.x;
     this.prevY = this.y;
     if (this.held || !this.alive) return null;
@@ -63,12 +66,12 @@ export class Spark {
       return null;
     }
 
-    const gravity = 640;
+    const gravity = 500 * gravityMul;
     this.vy += gravity * dt;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
-    const maxSp = 1000 * speedMul;
+    const maxSp = 750 * speedMul;
     const sp = Math.hypot(this.vx, this.vy);
     if (sp > maxSp) {
       this.vx *= maxSp / sp;
@@ -76,7 +79,7 @@ export class Spark {
     }
 
     const rest = 0.985;
-    let wall: "left" | "right" | "top" | null = null;
+    let wall: "left" | "right" | "top" | "floor" | null = null;
 
     if (this.x < this.r) {
       this.x = this.r;
@@ -92,6 +95,12 @@ export class Spark {
       this.y = this.r;
       this.vy = Math.abs(this.vy) * rest;
       wall = "top";
+    }
+
+    if (aegis && this.y > worldH - this.r - 6) {
+      this.y = worldH - this.r - 6;
+      this.vy = -Math.abs(this.vy) * 0.94;
+      wall = "floor";
     }
 
     return wall;
