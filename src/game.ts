@@ -1,4 +1,5 @@
 import { AudioEngine } from "./audio.ts";
+import { botSteer, isDemoMode } from "./bot.ts";
 import { isNonComputer } from "./device.ts";
 import { Halo } from "./entities/halo.ts";
 import { Paddle } from "./entities/paddle.ts";
@@ -90,12 +91,15 @@ export class Game {
   private rulesFromOptions = false;
   private optionsFrom: "title" | "playing" = "title";
   private settingsRow: 0 | 1 | 2 = 0;
+  private readonly demo = isDemoMode();
+  private demoWait = 0;
 
   constructor() {
     this.paddle = new Paddle(WORLD_W, WORLD_H);
     this.audio.applyVolumes(this.settings.music, this.settings.sfx);
     this.resetSparks();
     this.syncHaloCount(true);
+    if (this.demo && this.state === "rules") this.state = "title";
   }
 
   get speedMul(): number {
@@ -148,7 +152,7 @@ export class Game {
       return;
     }
 
-    input.consumeTap();
+    const tapped = input.consumeTap();
 
     if (this.state === "rules") {
       this.idleAmbient(capped);
@@ -159,14 +163,14 @@ export class Game {
     if (this.state === "title") {
       this.idleTitle(capped);
       for (const halo of this.halos) halo.update(capped, WORLD_W, WORLD_H, false);
-      if (input.consumeSpace()) {
+      if (input.consumeSpace() || tapped) {
         this.audio.unlock();
         this.audio.ui();
         this.beginRound();
         this.discardMenuInput(input);
         return;
       }
-      if (input.consumeMenu() || input.consumePause()) {
+      if (!this.demo && (input.consumeMenu() || input.consumePause())) {
         this.openOptions("title");
       }
       this.discardMenuInput(input);
@@ -187,7 +191,13 @@ export class Game {
 
     if (this.state === "gameover") {
       if (input.consumeCopy()) this.copyScore();
-      if (input.consumeSpace()) {
+      if (this.demo) {
+        this.demoWait += capped;
+        if (this.demoWait > 1.55) {
+          this.audio.unlock();
+          this.beginRound();
+        }
+      } else if (input.consumeSpace()) {
         this.audio.unlock();
         this.audio.ui();
         this.beginRound();
@@ -196,7 +206,7 @@ export class Game {
       return;
     }
 
-    if (input.consumeMenu() || input.consumePause()) {
+    if (!this.demo && (input.consumeMenu() || input.consumePause())) {
       this.openOptions("playing");
       this.discardMenuInput(input);
       return;
@@ -204,16 +214,32 @@ export class Game {
 
     this.playTime += capped;
     this.effects.update(capped);
-    this.paddle.update(capped, input.left, input.right, WORLD_W, this.settings.paddle);
+    const move = this.demo
+      ? botSteer({
+          paddleX: this.paddle.x,
+          paddleWidth: this.paddle.width,
+          paddleTop: this.paddle.top,
+          worldW: WORLD_W,
+          speedMul: this.speedMul,
+          gravityMul: this.effects.gravityMul,
+          aegis: this.effects.hasAegis,
+          sparks: this.sparks,
+          halos: this.halos,
+          drops: this.drops,
+        })
+      : { left: input.left, right: input.right };
+    this.paddle.update(capped, move.left, move.right, WORLD_W, this.settings.paddle);
 
     const held = this.sparks.find((s) => s.held && s.alive);
     if (held) {
       held.x = this.paddle.x;
       held.y = this.paddle.top - held.r - 3;
       this.trails[0]?.clear();
-      if (input.consumeSpace()) {
+      const autoServe = this.demo && (this.demoWait += capped) > 0.55;
+      if (autoServe || input.consumeSpace()) {
         this.audio.unlock();
         this.playTime = 0;
+        this.demoWait = 0;
         held.serve(400 * this.speedMul);
         this.audio.paddle(true);
         this.gridPulse = 1;
@@ -396,7 +422,7 @@ export class Game {
       return;
     }
     if (this.state === "blocked") {
-      this.state = hasSeenRules() ? "title" : "rules";
+      this.state = this.demo || hasSeenRules() ? "title" : "rules";
       if (this.state === "rules") {
         this.rulesPage = 0;
         this.rulesFromOptions = false;
@@ -405,7 +431,7 @@ export class Game {
   }
 
   pauseForBlur(): void {
-    if (this.state !== "playing") return;
+    if (this.demo || this.state !== "playing") return;
     this.optionsFrom = "playing";
     this.state = "options";
   }
@@ -590,6 +616,7 @@ export class Game {
   private beginRound(): void {
     this.state = "playing";
     this.playTime = 0;
+    this.demoWait = 0;
     this.paddleHits = 0;
     this.gridPulse = 0.4;
     this.score.reset();
