@@ -18,19 +18,30 @@ import {
 import { Particles } from "./fx/particles.ts";
 import type { Input } from "./input.ts";
 import { ScoreKeeper } from "./score.ts";
+import { GameSettings } from "./settings.ts";
 import { Effects } from "./systems/effects.ts";
 import {
   drawGameOver,
   drawHud,
   drawNowPlaying,
-  drawPause,
+  drawOptions,
   drawBlocked,
   drawRules,
+  drawSettings,
   drawTitle,
   drawVignette,
+  RULES_LAST_PAGE,
+  type RulesPage,
 } from "./ui.ts";
 
-export type GameState = "blocked" | "rules" | "title" | "playing" | "paused" | "gameover";
+export type GameState =
+  | "blocked"
+  | "rules"
+  | "title"
+  | "playing"
+  | "options"
+  | "settings"
+  | "gameover";
 
 export const WORLD_W = 1280;
 export const WORLD_H = 800;
@@ -61,6 +72,7 @@ export class Game {
   readonly halos: Halo[] = [];
   readonly drops: PowerupDrop[] = [];
   readonly score = new ScoreKeeper();
+  readonly settings = new GameSettings();
   readonly audio = new AudioEngine();
   readonly particles = new Particles();
   readonly shake = new Shake();
@@ -74,9 +86,14 @@ export class Game {
   private gridPulse = 0;
   private copyFlash = 0;
   private railFlash = { left: 0, right: 0, top: 0 };
+  private rulesPage: RulesPage = 0;
+  private rulesFromOptions = false;
+  private optionsFrom: "title" | "playing" = "title";
+  private settingsRow: 0 | 1 | 2 = 0;
 
   constructor() {
     this.paddle = new Paddle(WORLD_W, WORLD_H);
+    this.audio.applyVolumes(this.settings.music, this.settings.sfx);
     this.resetSparks();
     this.syncHaloCount(true);
   }
@@ -105,14 +122,15 @@ export class Game {
 
     if (input.consumeMute()) {
       this.audio.unlock();
-      this.audio.toggleMute();
+      this.settings.toggleMusicMute();
+      this.syncAudio();
     }
     if (input.consumeSkip()) {
       this.audio.unlock();
       this.audio.skip();
     }
 
-    if (this.state === "paused") this.audio.pauseMusic();
+    if (this.musicShouldPause()) this.audio.pauseMusic();
     else this.audio.resumeMusic();
 
     if (this.state === "blocked") {
@@ -121,26 +139,20 @@ export class Game {
       if (
         input.consumeTap() ||
         input.consumeSpace() ||
-        input.consumePause()
+        input.consumePause() ||
+        input.consumeMenu()
       ) {
         this.audio.unlock();
       }
-      input.consumeCopy();
+      this.discardMenuInput(input);
       return;
     }
 
     input.consumeTap();
 
     if (this.state === "rules") {
-      this.idleTitle(capped);
-      for (const halo of this.halos) halo.update(capped, WORLD_W, WORLD_H, false);
-      if (input.consumeSpace() || input.consumePause()) {
-        markRulesSeen();
-        this.audio.unlock();
-        this.audio.ui();
-        this.state = "title";
-      }
-      input.consumeCopy();
+      this.idleAmbient(capped);
+      this.handleRules(input);
       return;
     }
 
@@ -151,9 +163,25 @@ export class Game {
         this.audio.unlock();
         this.audio.ui();
         this.beginRound();
+        this.discardMenuInput(input);
+        return;
       }
-      input.consumePause();
-      input.consumeCopy();
+      if (input.consumeMenu() || input.consumePause()) {
+        this.openOptions("title");
+      }
+      this.discardMenuInput(input);
+      return;
+    }
+
+    if (this.state === "options") {
+      this.idleAmbient(capped);
+      this.handleOptions(input);
+      return;
+    }
+
+    if (this.state === "settings") {
+      this.idleAmbient(capped);
+      this.handleSettings(input);
       return;
     }
 
@@ -164,37 +192,19 @@ export class Game {
         this.audio.ui();
         this.beginRound();
       }
-      input.consumePause();
+      this.discardMenuInput(input);
       return;
     }
 
-    if (input.consumePause()) {
-      this.audio.unlock();
-      if (this.state === "playing") {
-        this.state = "paused";
-        this.audio.ui();
-        this.audio.pauseMusic();
-      } else if (this.state === "paused") {
-        this.state = "playing";
-        this.audio.ui();
-        this.audio.resumeMusic();
-      }
-    }
-
-    if (this.state === "paused") {
-      if (input.consumeSpace()) {
-        this.state = "playing";
-        this.audio.unlock();
-        this.audio.ui();
-        this.audio.resumeMusic();
-      }
-      input.consumeCopy();
+    if (input.consumeMenu() || input.consumePause()) {
+      this.openOptions("playing");
+      this.discardMenuInput(input);
       return;
     }
 
     this.playTime += capped;
     this.effects.update(capped);
-    this.paddle.update(capped, input.left, input.right, WORLD_W);
+    this.paddle.update(capped, input.left, input.right, WORLD_W, this.settings.paddle);
 
     const held = this.sparks.find((s) => s.held && s.alive);
     if (held) {
@@ -258,7 +268,7 @@ export class Game {
       this.state = "gameover";
     }
 
-    input.consumeCopy();
+    this.swallowExtras(input);
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
@@ -271,7 +281,7 @@ export class Game {
       WORLD_H,
       this.gridPulse,
       this.railFlash,
-      this.effects.hasAegis && this.state !== "title" && this.state !== "rules" && this.state !== "blocked",
+      this.effects.hasAegis && this.showMatch,
     );
     this.motes.draw(ctx);
     drawGrid(ctx, WORLD_W, WORLD_H, this.gridPulse);
@@ -282,7 +292,7 @@ export class Game {
 
     this.paddle.draw(ctx, accent);
 
-    if (this.state !== "title" && this.state !== "rules" && this.state !== "blocked") {
+    if (this.showMatch) {
       this.afterimage.draw(ctx);
       for (let i = 0; i < this.sparks.length; i++) {
         const spark = this.sparks[i]!;
@@ -312,9 +322,11 @@ export class Game {
 
     if (this.state === "blocked") {
       drawBlocked(ctx, WORLD_W, WORLD_H, this.clock, this.audio.soundtrackReady);
-    } else if (this.state === "rules") {
-      drawRules(ctx, WORLD_W, WORLD_H, this.clock);
-    } else if (this.state === "title") {
+    } else if (
+      this.state === "title" ||
+      (this.optionsFrom === "title" &&
+        (this.state === "options" || this.state === "settings"))
+    ) {
       drawTitle(ctx, WORLD_W, WORLD_H, this.clock);
     } else if (this.state === "gameover") {
       drawHud(
@@ -338,11 +350,14 @@ export class Game {
         this.copyFlash,
         this.clock,
       );
-    } else {
+    } else if (this.showMatch && (this.state === "playing" || this.overlayingPlay())) {
       const waiting = this.sparks.some((s) => s.held && s.alive);
-      const hintAlpha = waiting
-        ? 1
-        : Math.max(0, 1 - Math.max(0, this.playTime - 3) / 0.6);
+      const hintAlpha =
+        this.state === "playing"
+          ? waiting
+            ? 1
+            : Math.max(0, 1 - Math.max(0, this.playTime - 3) / 0.6)
+          : 0;
       drawHud(
         ctx,
         WORLD_W,
@@ -351,10 +366,24 @@ export class Game {
         this.score.combo,
         this.audio.muted,
         hintAlpha,
-        waiting,
+        this.state === "playing" && waiting,
         this.hudEffects(),
       );
-      if (this.state === "paused") drawPause(ctx, WORLD_W, WORLD_H);
+    }
+
+    if (this.state === "rules") {
+      drawRules(ctx, WORLD_W, WORLD_H, this.clock, this.rulesPage, this.rulesFromOptions);
+    } else if (this.state === "options") {
+      drawOptions(
+        ctx,
+        WORLD_W,
+        WORLD_H,
+        this.clock,
+        this.optionsFrom === "playing",
+        this.copyFlash,
+      );
+    } else if (this.state === "settings") {
+      drawSettings(ctx, WORLD_W, WORLD_H, this.clock, this.settings, this.settingsRow);
     }
 
     drawNowPlaying(ctx, WORLD_W, WORLD_H, this.audio.nowPlaying, this.audio.muted);
@@ -362,18 +391,192 @@ export class Game {
   }
 
   syncDevice(): void {
-    const mobile = isNonComputer();
-    if (mobile) {
+    if (isNonComputer()) {
       this.state = "blocked";
       return;
     }
     if (this.state === "blocked") {
       this.state = hasSeenRules() ? "title" : "rules";
+      if (this.state === "rules") {
+        this.rulesPage = 0;
+        this.rulesFromOptions = false;
+      }
     }
   }
 
+  pauseForBlur(): void {
+    if (this.state !== "playing") return;
+    this.optionsFrom = "playing";
+    this.state = "options";
+  }
+
+  private get showMatch(): boolean {
+    if (this.state === "playing" || this.state === "gameover") return true;
+    return this.overlayingPlay();
+  }
+
+  private overlayingPlay(): boolean {
+    if (this.optionsFrom !== "playing") return false;
+    return (
+      this.state === "options" ||
+      this.state === "settings" ||
+      (this.state === "rules" && this.rulesFromOptions)
+    );
+  }
+
+  private musicShouldPause(): boolean {
+    return this.overlayingPlay();
+  }
+
+  private syncAudio(): void {
+    this.audio.applyVolumes(this.settings.music, this.settings.sfx);
+  }
+
+  private idleAmbient(dt: number): void {
+    if (this.overlayingPlay()) return;
+    this.idleTitle(dt);
+    for (const halo of this.halos) halo.update(dt, WORLD_W, WORLD_H, false);
+  }
+
+  private openOptions(from: "title" | "playing"): void {
+    this.optionsFrom = from;
+    this.state = "options";
+    this.audio.unlock();
+    this.audio.ui();
+  }
+
+  private closeOptions(): void {
+    this.audio.unlock();
+    this.audio.ui();
+    this.state = this.optionsFrom;
+  }
+
+  private handleRules(input: Input): void {
+    if (input.consumeNavLeft() && this.rulesPage > 0) {
+      this.rulesPage = (this.rulesPage - 1) as RulesPage;
+      this.audio.unlock();
+      this.audio.ui();
+    }
+    if (input.consumeNavRight() && this.rulesPage < RULES_LAST_PAGE) {
+      this.rulesPage = (this.rulesPage + 1) as RulesPage;
+      this.audio.unlock();
+      this.audio.ui();
+    }
+    if (input.consumeSpace()) {
+      this.audio.unlock();
+      if (this.rulesPage < RULES_LAST_PAGE) {
+        this.rulesPage = (this.rulesPage + 1) as RulesPage;
+        this.audio.ui();
+      } else if (!this.rulesFromOptions) {
+        markRulesSeen();
+        this.audio.ui();
+        this.state = "title";
+      }
+    }
+    if (this.rulesFromOptions) {
+      if (input.consumeMenu()) {
+        this.audio.unlock();
+        this.audio.ui();
+        this.state = "options";
+      } else if (input.consumePause()) {
+        this.closeOptions();
+      }
+    } else {
+      input.consumeMenu();
+      input.consumePause();
+    }
+    this.discardMenuInput(input);
+  }
+
+  private handleOptions(input: Input): void {
+    if (input.consumeSettings()) {
+      this.settingsRow = 0;
+      this.state = "settings";
+      this.audio.unlock();
+      this.audio.ui();
+      this.discardMenuInput(input);
+      return;
+    }
+    if (input.consumeRules()) {
+      this.rulesPage = 0;
+      this.rulesFromOptions = true;
+      this.state = "rules";
+      this.audio.unlock();
+      this.audio.ui();
+      this.discardMenuInput(input);
+      return;
+    }
+    if (input.consumeCopy()) {
+      this.copyScore();
+      this.audio.unlock();
+      this.audio.ui();
+    }
+    if (input.consumeMenu() || input.consumePause() || input.consumeSpace()) {
+      this.closeOptions();
+    }
+    this.discardMenuInput(input);
+  }
+
+  private handleSettings(input: Input): void {
+    if (input.consumeNavUp()) {
+      this.settingsRow = ((this.settingsRow + 2) % 3) as 0 | 1 | 2;
+      this.audio.unlock();
+      this.audio.ui();
+    }
+    if (input.consumeNavDown()) {
+      this.settingsRow = ((this.settingsRow + 1) % 3) as 0 | 1 | 2;
+      this.audio.unlock();
+      this.audio.ui();
+    }
+    if (input.consumeNavLeft()) {
+      this.settings.nudge(this.settingsRow, -1);
+      this.syncAudio();
+      this.audio.unlock();
+      this.audio.ui();
+    }
+    if (input.consumeNavRight()) {
+      this.settings.nudge(this.settingsRow, 1);
+      this.syncAudio();
+      this.audio.unlock();
+      this.audio.ui();
+    }
+    if (input.consumeMenu() || input.consumeSettings()) {
+      this.audio.unlock();
+      this.audio.ui();
+      this.state = "options";
+    } else if (input.consumePause()) {
+      this.closeOptions();
+    }
+    this.discardMenuInput(input);
+  }
+
+  private discardMenuInput(input: Input): void {
+    input.consumeCopy();
+    input.consumeSettings();
+    input.consumeRules();
+    input.consumeNavLeft();
+    input.consumeNavRight();
+    input.consumeNavUp();
+    input.consumeNavDown();
+    input.consumeMenu();
+    input.consumePause();
+    input.consumeSpace();
+  }
+
+  private swallowExtras(input: Input): void {
+    input.consumeSettings();
+    input.consumeRules();
+    input.consumeNavLeft();
+    input.consumeNavRight();
+    input.consumeNavUp();
+    input.consumeNavDown();
+    input.consumeMenu();
+    input.consumePause();
+    input.consumeCopy();
+  }
+
   private idleTitle(dt: number): void {
-    this.paddle.update(dt, false, false, WORLD_W);
+    this.paddle.update(dt, false, false, WORLD_W, this.settings.paddle);
   }
 
   private resetSparks(): void {
@@ -557,7 +760,14 @@ export class Game {
   }
 
   private copyScore(): void {
-    const line = this.score.copyLine();
+    const parts = [
+      `SPARK VOLLEY — ${this.score.score.toLocaleString()}`,
+      `combo x${this.score.combo}`,
+      `best ${this.score.best.toLocaleString()}`,
+      `peak x${this.score.maxCombo}`,
+    ];
+    if (this.audio.nowPlaying) parts.push(`now playing ${this.audio.nowPlaying}`);
+    const line = parts.join("  ");
     void navigator.clipboard?.writeText(line).then(
       () => {
         this.copyFlash = 1.6;

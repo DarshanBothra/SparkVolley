@@ -4,7 +4,7 @@ A keyboard-only neon arcade game: volley a living spark through drifting **Halo 
 
 **Desktop / laptop only.** Phones and tablets see a lock screen (music can still play). Player-facing how-to: [LAUNCH.md](LAUNCH.md).
 
-The first visit in a browser opens a **rules** screen. Press **Space** to continue or **Esc** to exit the rules; you cannot start a round until that screen has been seen. Pause always shows the same rules.
+The first visit in a browser opens **five pages of rules** (how to play, how you score, combos, if you miss, bonuses). Press **Space** (or **Right**) to turn the page, then **Space** on the last page to reach the title. You cannot start a round until those pages have been seen; **Esc** does not skip them. After that, **Esc** or **P** opens the options menu (this also pauses a round).
 
 Open the page and play. Best score is stored in `localStorage` on that device. Soundtrack files in `music/` ship with the build so a shared URL plays the same tracks.
 
@@ -29,15 +29,20 @@ Then open the URL Vite prints (usually `http://localhost:5173`).
 
 | Key | Action |
 | --- | --- |
-| Left / A | Move paddle left |
-| Right / D | Move paddle right |
-| Space | Continue / serve / restart / resume from pause |
-| P or Esc | Pause (shows rules) / resume / exit first-load rules |
-| M | Mute audio (music + sound effects) |
+| Left / A | Move paddle left (also previous rules page / lower a setting) |
+| Right / D | Move paddle right (also next rules page / raise a setting) |
+| Up / Down | Select a settings row |
+| Space | Continue rules / start / serve / restart / resume from options |
+| P or Esc | Open or close **options** (pauses play). Esc does not skip first-load rules. |
+| S | Settings from options (Esc or S returns to options) |
+| R | Rules from options (five pages; Esc returns to options) |
+| M | Mute / unmute music (jumps the music slider to 0 and back) |
 | N | Next soundtrack track |
-| C | Copy a score line on the game-over screen |
+| C | Copy stats from options or the game-over screen |
 
 Paddle movement uses acceleration (not teleport). Halo rims are scoring targets, not solid walls — you score when the spark’s **center** passes through the inner hole.
+
+Settings (music 0–10, SFX 0–10, paddle speed 1–5) are stored in `localStorage` as `sparkVolley.settings`. Paddle speed 3 is the default feel.
 
 ## Powerups
 

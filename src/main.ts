@@ -44,7 +44,7 @@ window.addEventListener("resize", () => {
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden && game.state === "playing") game.state = "paused";
+  if (document.hidden && game.state === "playing") game.pauseForBlur();
 });
 
 let last = performance.now();

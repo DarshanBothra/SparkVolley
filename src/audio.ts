@@ -18,8 +18,13 @@ export function parseTrackFilename(
 }
 
 export class AudioEngine {
-  muted = false;
   nowPlaying: string | null = null;
+  private musicLevel = 4;
+  private sfxLevel = 10;
+
+  get muted(): boolean {
+    return this.musicLevel <= 0;
+  }
 
   get soundtrackReady(): boolean {
     return this.started && this.nowPlaying !== null;
@@ -34,6 +39,12 @@ export class AudioEngine {
   private catalogLoaded = false;
   private started = false;
 
+  applyVolumes(music: number, sfx: number): void {
+    this.musicLevel = music;
+    this.sfxLevel = sfx;
+    this.syncMusicVolume();
+  }
+
   unlock(): void {
     if (!this.ctx) {
       const Ctx =
@@ -46,12 +57,6 @@ export class AudioEngine {
     void this.startMusic();
   }
 
-  toggleMute(): boolean {
-    this.muted = !this.muted;
-    if (this.music) this.music.muted = this.muted;
-    return this.muted;
-  }
-
   pauseMusic(): void {
     if (this.musicHeld) return;
     this.musicHeld = true;
@@ -62,7 +67,7 @@ export class AudioEngine {
     if (!this.musicHeld) return;
     this.musicHeld = false;
     if (!this.music) return;
-    this.music.muted = this.muted;
+    this.syncMusicVolume();
     void this.music.play().catch(() => {
       // autoplay may still be blocked until a gesture
     });
@@ -172,8 +177,7 @@ export class AudioEngine {
     }
     const src = `${import.meta.env.BASE_URL}music/${encodeURIComponent(file)}`;
     const el = new Audio(src);
-    el.volume = 0.38;
-    el.muted = this.muted;
+    el.volume = this.musicLevel / 10;
     el.addEventListener("ended", () => this.next());
     this.music = el;
     const parsed = parseTrackFilename(file);
@@ -193,22 +197,27 @@ export class AudioEngine {
     slide?: number;
     delay?: number;
   }): void {
-    if (this.muted || !this.ctx) return;
+    if (this.sfxLevel <= 0 || !this.ctx) return;
     const ctx = this.ctx;
     const t0 = ctx.currentTime + (opts.delay ?? 0);
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+    const vol = opts.vol * (this.sfxLevel / 10);
     osc.type = opts.type;
     osc.frequency.setValueAtTime(opts.freq, t0);
     if (opts.slide) {
       osc.frequency.linearRampToValueAtTime(opts.freq + opts.slide, t0 + opts.dur);
     }
     gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.exponentialRampToValueAtTime(opts.vol, t0 + 0.012);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, vol), t0 + 0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + opts.dur);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(t0);
     osc.stop(t0 + opts.dur + 0.02);
+  }
+
+  private syncMusicVolume(): void {
+    if (this.music) this.music.volume = this.musicLevel / 10;
   }
 }
