@@ -1,3 +1,4 @@
+import { paddleAccel, paddleMaxSpeed } from "../settings.ts";
 import { COLORS, rgba, roundRectPath } from "../fx/glow.ts";
 
 export class Paddle {
@@ -36,9 +37,9 @@ export class Paddle {
     return this.y + this.height / 2;
   }
 
-  update(dt: number, left: boolean, right: boolean, worldW: number): void {
-    const accel = 3400;
-    const maxSpeed = 800;
+  update(dt: number, left: boolean, right: boolean, worldW: number, speedLevel = 3): void {
+    const accel = paddleAccel(speedLevel);
+    const maxSpeed = paddleMaxSpeed(speedLevel);
     const friction = 9;
 
     if (left && !right) this.vx -= accel * dt;
