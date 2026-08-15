@@ -1,5 +1,8 @@
+import { inject } from "@vercel/analytics";
 import { Game, WORLD_H, WORLD_W } from "./game.ts";
 import { Input } from "./input.ts";
+
+inject();
 
 const el = document.getElementById("game");
 if (!(el instanceof HTMLCanvasElement)) {
