@@ -1,8 +1,10 @@
 import { inject } from "@vercel/analytics";
+import { injectSpeedInsights } from "@vercel/speed-insights";
 import { Game, WORLD_H, WORLD_W } from "./game.ts";
 import { Input } from "./input.ts";
 
 inject();
+injectSpeedInsights();
 
 const el = document.getElementById("game");
 if (!(el instanceof HTMLCanvasElement)) {
